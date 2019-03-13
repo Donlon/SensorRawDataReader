@@ -2,12 +2,9 @@
 
 #include "DataReader.h"
 
-class MatlabDataExporter
+namespace MatlabDataExporter
 {
-public:
-	MatlabDataExporter();
-	static void Export(DataReader& reader);
-	static void Export(sensor_entity& sensor);
-	~MatlabDataExporter();
+	void Export(DataReader& reader);
+	void Export(sensor_entity& sensor);
 };
 

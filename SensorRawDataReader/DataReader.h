@@ -9,7 +9,7 @@ using namespace std;
 
 template<class T>
 class SensorData {
-	DWORD	size = 0;
+	size_t size = 0;
 public:
 	vector<vector<T>> data;
 	vector<T> data_accuracy;

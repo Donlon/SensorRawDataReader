@@ -44,43 +44,29 @@ if (!(condition)) {                            \
 	return retval;                               \
 }
 
-
+#define assert_condition(condition) ((void)sizeof(char[1 - 2*!(condition)]))
 //#define LITTLE_ENDIAN
 #ifdef LITTLE_ENDIAN
 #define ENDIAN_CAST(type, pointer) *reinterpret_cast<type *>(pointer)
 #else
-//#define ENDIAN_CAST(type, pointer) reinterpret_cast<type>(endian_inv(pointer))
-//#define ENDIAN_CAST_DWORD endian_cast_dword
-//#define ENDIAN_CAST_QWORD endian_cast_qword
-//#define ENDIAN_CAST(type, pointer) (DWORD __endian_cast_tval = endian_inv(pointer), *reinterpret_cast<type*>(&__endian_cast_tval))
-//#define ENDIAN_CAST_DWORD(pos, dst) *reinterpret_cast<DWORD*>(dst) = _byteswap_ulong(*reinterpret_cast<LONG*>(pos));
-//#define ENDIAN_CAST_QWORD(pos, dst) *reinterpret_cast<UINT64*>(dst) = _byteswap_uint64(*reinterpret_cast<UINT64*>(pos));
-DWORD inline CAST_DWORD(void* pos){
-	return _byteswap_ulong(*reinterpret_cast<LONG*>(pos));
+template<typename _Tp> static inline _Tp endian_cast(void* pos) {
+	//static_assert(sizeof(_Tp) == 2 ||sizeof(_Tp) == 4 || sizeof(_Tp) == 8, "Support only 16-, 32- or 64-bit-sized type");
+	assert_condition(sizeof(_Tp) == 2 || sizeof(_Tp) == 4 || sizeof(_Tp) == 8);
+
+	if (sizeof(_Tp) == 2) {
+		SHORT v = _byteswap_ushort(*reinterpret_cast<SHORT*>(pos));
+		return *reinterpret_cast<_Tp*>(&v);
+	} else if (sizeof(_Tp) == 4) {
+		DWORD v = _byteswap_ulong(*reinterpret_cast<DWORD*>(pos));
+		return *reinterpret_cast<_Tp*>(&v);
+	}	else if (sizeof(_Tp) == 8) {
+		INT64 v = _byteswap_uint64(*reinterpret_cast<INT64*>(pos));
+		return *reinterpret_cast<_Tp*>(&v);
+	} else {
+		//static_assert(false);
+	}
 }
-#define CAST_QWORD(pos) _byteswap_uint64(*reinterpret_cast<UINT64*>(pos))
 #endif
-
-//inline void endian_cast_dword(UCHAR* pos, void* dst) {
-//	// from big endian
-//	//DWORD val = endian_inv(pos);
-//	//*reinterpret_cast<DWORD*>(dst) = *reinterpret_cast<DWORD*>(&val);
-//	*reinterpret_cast<DWORD*>(dst) = _byteswap_ulong(*reinterpret_cast<LONG*>(pos));
-//}
-
-//inline void endian_cast_qword(UCHAR* pos, void* dst) {
-//	*reinterpret_cast<UINT64*>(dst) = _byteswap_uint64(*reinterpret_cast<UINT64*>(pos));
-//}
-
-DWORD endian_inv(void* pos) {
-	DWORD conv = 0;
-	register UCHAR* pVal = reinterpret_cast<UCHAR*>(pos);
-	conv |= *pVal++ << 24;
-	conv |= *pVal++ << 16;
-	conv |= *pVal++ << 8;
-	conv |= *pVal;
-	return conv;
-}
 
 void print_sensor_info(sensor_entity &sensor) {
 #ifdef _DEBUG
@@ -107,7 +93,7 @@ BOOL DataReader::Parse() {
 	PARSE_ASSERT_REVAL(memcmp(pointer, "\x12\x34\x56\x78\0\0\0\0\0\0\0\0", 12) == 0, FALSE);
 	pointer += 12;
 
-	DWORD version = CAST_DWORD(pointer);
+	DWORD version = endian_cast<DWORD>(pointer);
 
 	PARSE_ASSERT_REVAL(version == 1, FALSE);
 
@@ -162,11 +148,11 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 {
 	UCHAR* pointer = base;
 
-	DWORD info_size = CAST_DWORD(pointer);
+	DWORD info_size = endian_cast<DWORD>(pointer);
 	pointer += 4;
 	PARSE_ASSERT_REVAL(BufferSufficient(pointer, info_size), -1)
 
-	DWORD sensorCount = CAST_DWORD(pointer);
+	DWORD sensorCount = endian_cast<DWORD>(pointer);
 	pointer += 4;
 
 	vector<sensor_entity> sensors(sensorCount);
@@ -178,17 +164,17 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 
 		PARSE_ASSERT_REVAL(BufferSufficient(pointer, 4), -1)
 
-		DWORD entity_size = CAST_DWORD(pointer);
+		DWORD entity_size = endian_cast<DWORD>(pointer);
 		pointer += 4;
 
 		PARSE_ASSERT_REVAL(BufferSufficient(pointer, entity_size), -1)
 
 		UCHAR* pointer_entity = pointer;
 
-		sensor.id = CAST_DWORD(pointer_entity);
+		sensor.id = endian_cast<DWORD>(pointer_entity);
 		pointer_entity += 4;
 
-		DWORD data_dimension = CAST_DWORD(pointer_entity);
+		DWORD data_dimension = endian_cast<DWORD>(pointer_entity);
 		sensor.data.SetDimension(data_dimension);
 		pointer_entity += 4;
 
@@ -200,22 +186,22 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 		pointer_entity += sensor.vendor_name.length();
 		pointer_entity++; // TODO: skip zeros
 
-		sensor.version = CAST_DWORD(pointer_entity);
+		sensor.version = endian_cast<DWORD>(pointer_entity);
 		pointer_entity += 4;
 
-		sensor.type = CAST_DWORD(pointer_entity);
+		sensor.type = endian_cast<DWORD>(pointer_entity);
 		pointer_entity += 4;
 
-		sensor.maximum_range = *reinterpret_cast<float*>(CAST_DWORD(pointer_entity));
+		sensor.maximum_range = endian_cast<FLOAT>(pointer_entity);
 		pointer_entity += 4;
 
-		sensor.resolution = CAST_DWORD(pointer_entity);
+		sensor.resolution = endian_cast<FLOAT>(pointer_entity);
 		pointer_entity += 4;
 
-		sensor.power = CAST_DWORD(pointer_entity);
+		sensor.power = endian_cast<FLOAT>(pointer_entity);
 		pointer_entity += 4;
 
-		sensor.min_delay = CAST_DWORD(pointer_entity);
+		sensor.min_delay = endian_cast<DWORD>(pointer_entity);
 		pointer_entity += 4;
 
 		print_sensor_info(sensor);
@@ -294,15 +280,15 @@ int DataReader::ProbeFrame(UCHAR* base)
 	PARSE_ASSERT_REVAL(BufferSufficient(base, 20), -1)//TODO: merge 20 with 16
 	UCHAR* pointer = base;
 
-	DWORD frameIndex = CAST_DWORD(pointer);
+	DWORD frameIndex = endian_cast<DWORD>(pointer);
 	pointer += 4;
 
-	DWORD frameSize = CAST_DWORD(pointer);
+	DWORD frameSize = endian_cast<DWORD>(pointer);
 	pointer += 4;
 
 	PARSE_ASSERT_REVAL(BufferSufficient(pointer, frameSize), -1)
 
-	DWORD groupCount = CAST_DWORD(pointer);
+	DWORD groupCount = endian_cast<DWORD>(pointer);
 	pointer += 4;
 
 	pointer += 8;//time
@@ -314,10 +300,10 @@ int DataReader::ProbeFrame(UCHAR* base)
 	while (readGroup < (int) groupCount) { //TODO: use for.
 		PARSE_ASSERT_REVAL(BufferSufficient(groupPointer, 8), -1)
 
-		DWORD sensorId = CAST_DWORD(groupPointer);
+		DWORD sensorId = endian_cast<DWORD>(groupPointer);
 		groupPointer += 4;
 
-		DWORD data_count = CAST_DWORD(groupPointer);
+		DWORD data_count = endian_cast<DWORD>(groupPointer);
 		groupPointer += 4;
 
 
@@ -356,24 +342,24 @@ int DataReader::ParseFrame(UCHAR* base, recode_frame& frame)
 
 	pointer += 4;// frameIndex;
 
-	frame.size = CAST_DWORD(pointer);
+	frame.size = endian_cast<DWORD>(pointer);
 	pointer += 4;// frameSize;
 
-	DWORD groupCount = CAST_DWORD(pointer);
+	DWORD groupCount = endian_cast<DWORD>(pointer);
 	frame.group_count = groupCount;
 	pointer += 4;
 
-	frame.time = CAST_QWORD(pointer);
+	frame.time = endian_cast<DWORD>(pointer);
 	pointer += 8;// time
 
 	int readGroup = 0;
 	UCHAR* groupPointer = pointer;
 
 	while (readGroup < (int)groupCount) {
-		DWORD sensorId = CAST_DWORD(groupPointer);
+		DWORD sensorId = endian_cast<DWORD>(groupPointer);
 		groupPointer += 4;
 
-		DWORD data_count = CAST_DWORD(groupPointer);
+		DWORD data_count = endian_cast<DWORD>(groupPointer);
 		groupPointer += 4;
 
 		if (data_count == 0) {
@@ -384,16 +370,16 @@ int DataReader::ParseFrame(UCHAR* base, recode_frame& frame)
 		for (int i = 0; i < data_count; i++) {
 			//ENDIAN_CAST_QWORD(groupPointer,
 			//	reinterpret_cast<FLOAT *>(&currSensor->data_accuracy[currSensor->currDataIndex++]));
-			UINT64 timestamp = CAST_QWORD(groupPointer);
+			time_t timestamp = endian_cast<time_t>(groupPointer);
 			data.data_timestamp.push_back(timestamp);
 			groupPointer += 8;// time
 
-			float accuracy = CAST_DWORD(groupPointer);
+			float accuracy = endian_cast<FLOAT>(groupPointer);
 			data.data_accuracy.push_back(accuracy);
 			groupPointer += 4;// accuracy
 
 			for (int j = 0; j < data.Dimension(); j++) {
-				float dt = CAST_DWORD(groupPointer);
+				float dt = endian_cast<FLOAT>(groupPointer);
 				data.data[j].push_back(dt);
 				groupPointer += 4;
 			}
@@ -410,12 +396,12 @@ DataReader::~DataReader() {
 
 int DataReader::_LoadFile() {
 	m_file_handle = ::CreateFile(m_file_path,    // 名称
-		GENERIC_READ,                          // 读文件
-		FILE_SHARE_READ | FILE_SHARE_WRITE,    // 共享读写
-		NULL,                                  // 缺省安全属性。
-		OPEN_EXISTING,                         //
-		FILE_ATTRIBUTE_NORMAL,                 //      
-		NULL);                                 // 模板文件为空
+		GENERIC_READ,                              // 读文件
+		FILE_SHARE_READ | FILE_SHARE_WRITE,        // 共享读写
+		NULL,                                      // 缺省安全属性。
+		OPEN_EXISTING,                             //
+		FILE_ATTRIBUTE_NORMAL,                     //      
+		NULL);                                     // 模板文件为空
 
 	if (m_file_handle == INVALID_HANDLE_VALUE) {
 		throw "CreateFile failed!";

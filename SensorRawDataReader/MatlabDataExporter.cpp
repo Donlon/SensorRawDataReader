@@ -11,35 +11,54 @@
 
 using namespace std;
 
-MatlabDataExporter::MatlabDataExporter()
-{
+void AppendToMatFile(SensorData<FLOAT>& data, MATFile *pmat, LPCSTR varName);
+
+MATFile* CreateMatFile(LPCSTR path) {
+	return matOpen(path, "w");
+}
+bool CloseMatFile(MATFile* pmat) {
+	return matClose(pmat) == 0;
 }
 
 void MatlabDataExporter::Export(DataReader& reader)
 {
-	if (reader.m_status == DataReader::PARSED && reader.GetSensorCount() > 0) {
-		Export(reader.GetSensors()[3]);
-	}
-}
-
-void MatlabDataExporter::Export(sensor_entity& sensor)
-{
-	MATFile *pmat = matOpen("D:\\Links\\Documents\\MATLAB\\testmat.mat", "w");
+	MATFile *pmat = CreateMatFile("D:\\Links\\Documents\\MATLAB\\testmat.mat");
 	if (pmat == NULL) {
 		cout << "Error in creating mat file." << endl;
 		//EXIT_FAILURE
 		return;
 	}
 
-	int data_count = sensor.data.Size();
+	if (reader.m_status == DataReader::PARSED && reader.GetSensorCount() > 0)
+	{
+		int index = 0;
+		for (sensor_entity& sensor : reader.GetSensors())
+		{
+			string varName = "sensor_data_";
+			varName.append(to_string(index));
+			AppendToMatFile(sensor.data, pmat, varName.c_str());
+			index++;
+		}
+	}
+
+	CloseMatFile(pmat);
+}
+
+void MatlabDataExporter::Export(sensor_entity& sensor) {
+	throw "Not implemented yet.";
+}
+
+void AppendToMatFile(SensorData<FLOAT>& data, MATFile *pmat, LPCSTR varName)
+{
+	int data_count = data.Size();
 	//mxArray* arr = mxCreateDoubleMatrix(sensor->data_dimension, sensor->data_count, mxREAL);
-	mxArray* arr = mxCreateNumericMatrix(sensor.data.Dimension(), data_count, mxSINGLE_CLASS, mxREAL);
-	mxSingle* arr_data = reinterpret_cast<mxSingle*>(mxMalloc(sensor.data.Dimension() * data_count * sizeof(mxSingle)));
+	mxArray* arr = mxCreateNumericMatrix(data.Dimension(), data_count, mxSINGLE_CLASS, mxREAL);
+	mxSingle* arr_data = reinterpret_cast<mxSingle*>(mxMalloc(data.Dimension() * data_count * sizeof(mxSingle)));
 	
-	for (int i = 0; i < sensor.data.Dimension(); i++) {
+	for (int i = 0; i < data.Dimension(); i++) {
 		for (int j = 0; j < data_count; j++) {
 			//mxSetSingles(sensor->data[i][j],);
-			arr_data[i * data_count + j] = sensor.data.At(i, j);
+			arr_data[i * data_count + j] = data.At(i, j);
 		}
 	}
 
@@ -51,14 +70,4 @@ void MatlabDataExporter::Export(sensor_entity& sensor)
 	}
 
 	mxDestroyArray(arr);
-
-	if (matClose(pmat) != 0) {
-		cout << "Error closing MAT file" << endl;
-		return;
-	}
-}
-
-
-MatlabDataExporter::~MatlabDataExporter()
-{
 }
