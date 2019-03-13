@@ -22,7 +22,7 @@ void DataReader::Load() {
 #ifdef __WIN64
 	#define DEBUGGER_BP __asm{int 3};
 #else
-	#define DEBUGGER_BP 
+	#define DEBUGGER_BP throw;
 #endif
 
 #define PARSE_ASSERT_MSG(condition, msg)       \
@@ -53,8 +53,12 @@ if (!(condition)) {                            \
 //#define ENDIAN_CAST_DWORD endian_cast_dword
 //#define ENDIAN_CAST_QWORD endian_cast_qword
 //#define ENDIAN_CAST(type, pointer) (DWORD __endian_cast_tval = endian_inv(pointer), *reinterpret_cast<type*>(&__endian_cast_tval))
-#define ENDIAN_CAST_DWORD(pos, dst) *reinterpret_cast<DWORD*>(dst) = _byteswap_ulong(*reinterpret_cast<LONG*>(pos));
-#define ENDIAN_CAST_QWORD(pos, dst) *reinterpret_cast<UINT64*>(dst) = _byteswap_uint64(*reinterpret_cast<UINT64*>(pos));
+//#define ENDIAN_CAST_DWORD(pos, dst) *reinterpret_cast<DWORD*>(dst) = _byteswap_ulong(*reinterpret_cast<LONG*>(pos));
+//#define ENDIAN_CAST_QWORD(pos, dst) *reinterpret_cast<UINT64*>(dst) = _byteswap_uint64(*reinterpret_cast<UINT64*>(pos));
+DWORD inline CAST_DWORD(void* pos){
+	return _byteswap_ulong(*reinterpret_cast<LONG*>(pos));
+}
+#define CAST_QWORD(pos) _byteswap_uint64(*reinterpret_cast<UINT64*>(pos))
 #endif
 
 //inline void endian_cast_dword(UCHAR* pos, void* dst) {
@@ -103,8 +107,7 @@ BOOL DataReader::Parse() {
 	PARSE_ASSERT_REVAL(memcmp(pointer, "\x12\x34\x56\x78\0\0\0\0\0\0\0\0", 12) == 0, FALSE);
 	pointer += 12;
 
-	DWORD version;
-	ENDIAN_CAST_DWORD(pointer, &version);
+	DWORD version = CAST_DWORD(pointer);
 
 	PARSE_ASSERT_REVAL(version == 1, FALSE);
 
@@ -116,16 +119,6 @@ BOOL DataReader::Parse() {
 	pointer += sensorsInfoSize;
 
 	PARSE_ASSERT_REVAL(ProbeRecordedData(pointer), FALSE)
-
-	for (int i = 0; i < m_sensor_count; i++) {
-		sensor_entity& sensor = m_sensors[i];
-		sensor.data_timestamp.resize(sensor.data_count);
-		sensor.data_accuracy.resize(sensor.data_count);
-		sensor.data = new FLOAT*[sensor.data_dimension]();
-		for (int i = 0; i < sensor.data_dimension; i++) {
-			sensor.data[i] = new FLOAT[sensor.data_count]();
-		}
-	}
 
 	vector<recode_frame> frames(m_frame_count);
 	for (int i = 0; i < m_frame_count; i++) {
@@ -140,21 +133,22 @@ BOOL DataReader::Parse() {
 	}
 
 	frames.swap(m_frames);
-#if 1
-#ifdef _DEBUG
+
+#if 0 && defined _DEBUG
 	puts("");
 
 	for (int i = 0; i < m_sensor_count; i++, putchar('\n')) {
-		sensor_entity& s2 = m_sensors[i];
-		cout << s2.name << endl;
-		for (int i = 0; i < s2.data_count; i++, putchar('\n')) {
-			printf("%d: %.2f", i, s2.data_accuracy[i]);
-			for (int j = 0; j < s2.data_dimension && (putchar(' '), 1); j++) {
-				printf("%.2f", s2.data[j][i]);
+		sensor_entity& sensor = m_sensors[i];
+		cout << sensor.name << endl;
+		SensorData<float>& data = sensor.data;
+
+		for (int i = 0; i < data.Size(); i++, putchar('\n')) {
+			printf("%d: %.2f", i, data.data_accuracy[i]);
+			for (int j = 0; j < sensor.data.Dimension() && (putchar(' '), 1); j++) {
+				printf("%.2f", data.At(j, i));
 			}
 		}
 	}
-#endif
 #endif
 	//m_sensors.resize(2);
 	//m_sensors.resize(10);
@@ -168,13 +162,11 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 {
 	UCHAR* pointer = base;
 
-	DWORD info_size;
-	ENDIAN_CAST_DWORD(pointer, &info_size);
+	DWORD info_size = CAST_DWORD(pointer);
 	pointer += 4;
 	PARSE_ASSERT_REVAL(BufferSufficient(pointer, info_size), -1)
 
-	DWORD sensorCount;
-	ENDIAN_CAST_DWORD(pointer, &sensorCount);
+	DWORD sensorCount = CAST_DWORD(pointer);
 	pointer += 4;
 
 	vector<sensor_entity> sensors(sensorCount);
@@ -186,18 +178,18 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 
 		PARSE_ASSERT_REVAL(BufferSufficient(pointer, 4), -1)
 
-		DWORD entity_size;
-		ENDIAN_CAST_DWORD(pointer, &entity_size);
+		DWORD entity_size = CAST_DWORD(pointer);
 		pointer += 4;
 
 		PARSE_ASSERT_REVAL(BufferSufficient(pointer, entity_size), -1)
 
 		UCHAR* pointer_entity = pointer;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.id);
+		sensor.id = CAST_DWORD(pointer_entity);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.data_dimension);
+		DWORD data_dimension = CAST_DWORD(pointer_entity);
+		sensor.data.SetDimension(data_dimension);
 		pointer_entity += 4;
 
 		ReadString(pointer_entity, sensor.name);
@@ -208,22 +200,22 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 		pointer_entity += sensor.vendor_name.length();
 		pointer_entity++; // TODO: skip zeros
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.version);
+		sensor.version = CAST_DWORD(pointer_entity);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.type);
+		sensor.type = CAST_DWORD(pointer_entity);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.maximum_range);
+		sensor.maximum_range = *reinterpret_cast<float*>(CAST_DWORD(pointer_entity));
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.resolution);
+		sensor.resolution = CAST_DWORD(pointer_entity);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.power);
+		sensor.power = CAST_DWORD(pointer_entity);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &sensor.min_delay);
+		sensor.min_delay = CAST_DWORD(pointer_entity);
 		pointer_entity += 4;
 
 		print_sensor_info(sensor);
@@ -289,7 +281,7 @@ BOOL DataReader::ProbeRecordedData(UCHAR * base)
 #ifdef _DEBUG
 	puts("Probe result:");
 	for (int i = 0; i < m_sensor_count; i++) {
-		printf("  count:%6d  name:%s\n", m_sensors[i].data_count, m_sensors[i].name.c_str());
+		printf("  count:%6zd  name:%s\n", m_sensors[i].data.Size(), m_sensors[i].name.c_str());
 	}
 #endif
 
@@ -302,18 +294,15 @@ int DataReader::ProbeFrame(UCHAR* base)
 	PARSE_ASSERT_REVAL(BufferSufficient(base, 20), -1)//TODO: merge 20 with 16
 	UCHAR* pointer = base;
 
-	int frameIndex = 0;
-	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&frameIndex));
+	DWORD frameIndex = CAST_DWORD(pointer);
 	pointer += 4;
 
-	DWORD frameSize = 0;
-	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&frameSize));
+	DWORD frameSize = CAST_DWORD(pointer);
 	pointer += 4;
 
 	PARSE_ASSERT_REVAL(BufferSufficient(pointer, frameSize), -1)
 
-	DWORD groupCount = 0;
-	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&groupCount));
+	DWORD groupCount = CAST_DWORD(pointer);
 	pointer += 4;
 
 	pointer += 8;//time
@@ -323,24 +312,28 @@ int DataReader::ProbeFrame(UCHAR* base)
 	UCHAR* groupPointer = pointer;
 
 	while (readGroup < (int) groupCount) { //TODO: use for.
-		DWORD sensorId = 0;
-		ENDIAN_CAST_DWORD(groupPointer, reinterpret_cast<DWORD *>(&sensorId));
+		PARSE_ASSERT_REVAL(BufferSufficient(groupPointer, 8), -1)
+
+		DWORD sensorId = CAST_DWORD(groupPointer);
 		groupPointer += 4;
 
-		DWORD data_count = 0;
-		ENDIAN_CAST_DWORD(groupPointer, reinterpret_cast<DWORD *>(&data_count));
+		DWORD data_count = CAST_DWORD(groupPointer);
 		groupPointer += 4;
 
-		if (data_count == 0) {
-			continue;
+
+		if (data_count != 0) {
+			SensorData<float>& data = MapToSensorEntity(sensorId).data;
+			data.SetSize(data_count);
+
+			DWORD groupSize = data_count * (8 + 4 + 4 * data.Dimension());
+
+			PARSE_ASSERT_REVAL(BufferSufficient(groupPointer, groupSize), -1)
+
+			groupPointer += groupSize;
+			readGroup++;
+		} else {
+			printf("");
 		}
-		sensor_entity* currSensor = MapToSensorEntity(sensorId);
-		PARSE_ASSERT_REVAL(currSensor, -1);
-		currSensor->data_count += data_count;
-
-		DWORD groupSize = data_count * (8 + 4 + 4 * currSensor->data_dimension);
-		groupPointer += groupSize;
-		readGroup++;
 	}
 
 	PARSE_ASSERT_REVAL((DWORD)(groupPointer - pointer) + 8 + 4 == frameSize, -1);
@@ -348,13 +341,13 @@ int DataReader::ProbeFrame(UCHAR* base)
 	return (DWORD)(groupPointer - base);
 }
 
-sensor_entity* DataReader::MapToSensorEntity(DWORD sensorId) {
+sensor_entity& DataReader::MapToSensorEntity(DWORD sensorId) {
 	for (int i = 0; i < m_sensors.size(); i++) {
 		if (m_sensors[i].id == sensorId) {
-			return &m_sensors[i];
+			return m_sensors[i];
 		}
 	}
-	return nullptr;
+	throw;
 }
 
 int DataReader::ParseFrame(UCHAR* base, recode_frame& frame)
@@ -363,47 +356,45 @@ int DataReader::ParseFrame(UCHAR* base, recode_frame& frame)
 
 	pointer += 4;// frameIndex;
 
-	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&frame.size));
+	frame.size = CAST_DWORD(pointer);
 	pointer += 4;// frameSize;
 
-	DWORD groupCount = 0;
-	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&groupCount));
+	DWORD groupCount = CAST_DWORD(pointer);
 	frame.group_count = groupCount;
 	pointer += 4;
 
-	ENDIAN_CAST_QWORD(pointer, reinterpret_cast<UINT64 *>(&frame.time));
+	frame.time = CAST_QWORD(pointer);
 	pointer += 8;// time
 
 	int readGroup = 0;
 	UCHAR* groupPointer = pointer;
 
 	while (readGroup < (int)groupCount) {
-		DWORD sensorId = 0;
-		ENDIAN_CAST_DWORD(groupPointer, reinterpret_cast<DWORD *>(&sensorId));
+		DWORD sensorId = CAST_DWORD(groupPointer);
 		groupPointer += 4;
 
-		DWORD data_count = 0;
-		ENDIAN_CAST_DWORD(groupPointer, reinterpret_cast<DWORD *>(&data_count));
+		DWORD data_count = CAST_DWORD(groupPointer);
 		groupPointer += 4;
 
 		if (data_count == 0) {
 			continue;
 		}
-		sensor_entity* currSensor = MapToSensorEntity(sensorId);
+		SensorData<float>& data = MapToSensorEntity(sensorId).data;
 
-		for (int i = 0; i < data_count; i++, currSensor->curr_data_index++) {
+		for (int i = 0; i < data_count; i++) {
 			//ENDIAN_CAST_QWORD(groupPointer,
 			//	reinterpret_cast<FLOAT *>(&currSensor->data_accuracy[currSensor->currDataIndex++]));
-			ENDIAN_CAST_QWORD(groupPointer, reinterpret_cast<UINT64 *>(&currSensor->data_timestamp[currSensor->curr_data_index]));
+			UINT64 timestamp = CAST_QWORD(groupPointer);
+			data.data_timestamp.push_back(timestamp);
 			groupPointer += 8;// time
 
-			ENDIAN_CAST_DWORD(groupPointer,
-					reinterpret_cast<FLOAT *>(&currSensor->data_accuracy[currSensor->curr_data_index]));
+			float accuracy = CAST_DWORD(groupPointer);
+			data.data_accuracy.push_back(accuracy);
 			groupPointer += 4;// accuracy
 
-			for (int j = 0; j < currSensor->data_dimension; j++) {
-				ENDIAN_CAST_DWORD(groupPointer,
-						reinterpret_cast<FLOAT *>(&currSensor->data[j][currSensor->curr_data_index]));
+			for (int j = 0; j < data.Dimension(); j++) {
+				float dt = CAST_DWORD(groupPointer);
+				data.data[j].push_back(dt);
 				groupPointer += 4;
 			}
 		}

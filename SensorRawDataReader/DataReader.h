@@ -7,13 +7,56 @@
 
 using namespace std;
 
+template<class T>
+class SensorData {
+	DWORD	size = 0;
+public:
+	vector<vector<T>> data;
+	vector<T> data_accuracy;
+	vector<time_t> data_timestamp;
+
+	size_t Size() {
+		return size;
+	}
+
+	void SetSize(size_t size) {
+		data_accuracy.reserve(size);
+		data_timestamp.reserve(size);
+		for (int i = 0; i < Dimension(); i++) {
+			data[i].reserve(size);
+		}
+		this->size = size;
+	}
+
+	size_t Dimension() {
+		return data.size();
+	}
+
+	void SetDimension(int dim) {
+		if (size != 0) throw;
+		data.resize(dim);
+	}
+
+	T At(int dim, int index) {
+		return data[dim][index];
+	}
+
+	void Set(int dim, int index, T val) {
+		data[dim][index] = val;
+
+		data_accuracy.push_back(12f);
+	}
+};
+
+class FloatSensorData : public SensorData<float> {
+
+};
+
 class sensor_entity {
 public:
 	DWORD index;
 	DWORD id;
 
-	DWORD name_len;
-	DWORD vendor_name_len;
 	string name;
 	string vendor_name;
 
@@ -24,18 +67,17 @@ public:
 	FLOAT power;
 	DWORD min_delay;
 
-	DWORD	data_dimension;
-	FLOAT** data;
-	vector<FLOAT> data_accuracy;
-	vector<time_t> data_timestamp;
+	SensorData<float> data;
+	//DWORD	data_dimension;
+	//FLOAT** data;
+	//vector<FLOAT> data_accuracy;
+	//vector<time_t> data_timestamp;
 
-	DWORD data_count;
-	DWORD curr_data_index;
+	//DWORD data_count;
+	//DWORD curr_data_index;
 
 	sensor_entity() : index(),
 		id(),
-		name_len(),
-		vendor_name_len(),
 		name(),
 		vendor_name(),
 		version(),
@@ -43,26 +85,14 @@ public:
 		maximum_range(),
 		resolution(),
 		power(),
-		min_delay(),
-		data_dimension(),
-		data(),
-		data_accuracy(),
-		data_timestamp(),
-		data_count(),
-		curr_data_index()
-	{
-		static int count = 0;
-		cout << "construct " << id << ", index " << count << ", this=0x" << reinterpret_cast<void*>(this) << endl;
-		count++;
-	}
-
-	~sensor_entity() {
-		cout << "destroy " << id << ", index "<< index << ", this=0x" << reinterpret_cast<void*>(this) << endl;
-		for (int i = 0; i < data_dimension; i++) {
-			ptr_free(data[i])
-		}
-		ptr_free(data)
-	}
+		min_delay()//,
+		//data_dimension(),
+		//data(),
+		//data_accuracy(),
+		//data_timestamp(),
+		//data_count(),
+		//curr_data_index()
+	{}
 };
 
 class recode_frame {
@@ -135,7 +165,7 @@ private:
 
 	int ParseFrame(UCHAR* base, recode_frame& frame);
 
-	void ReadString(UCHAR* base, string& str);
+	void ReadString(BYTE* base, string& str);
 
 	BOOL inline BufferSufficient(UCHAR* base, DWORD bytesToRead);
 
@@ -143,6 +173,6 @@ private:
 
 	int ProbeFrame(UCHAR * base);
 
-	sensor_entity* MapToSensorEntity(DWORD sensorId);
+	sensor_entity& MapToSensorEntity(DWORD sensorId);
 
 };

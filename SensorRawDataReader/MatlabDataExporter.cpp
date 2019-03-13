@@ -18,11 +18,11 @@ MatlabDataExporter::MatlabDataExporter()
 void MatlabDataExporter::Export(DataReader& reader)
 {
 	if (reader.m_status == DataReader::PARSED && reader.GetSensorCount() > 0) {
-		Export(&reader.GetSensors()[3]);
+		Export(reader.GetSensors()[3]);
 	}
 }
 
-void MatlabDataExporter::Export(sensor_entity * sensor)
+void MatlabDataExporter::Export(sensor_entity& sensor)
 {
 	MATFile *pmat = matOpen("D:\\Links\\Documents\\MATLAB\\testmat.mat", "w");
 	if (pmat == NULL) {
@@ -30,14 +30,16 @@ void MatlabDataExporter::Export(sensor_entity * sensor)
 		//EXIT_FAILURE
 		return;
 	}
+
+	int data_count = sensor.data.Size();
 	//mxArray* arr = mxCreateDoubleMatrix(sensor->data_dimension, sensor->data_count, mxREAL);
-	mxArray* arr = mxCreateNumericMatrix(sensor->data_dimension, sensor->data_count, mxSINGLE_CLASS, mxREAL);
-	mxSingle* arr_data = reinterpret_cast<mxSingle*>(mxMalloc(sensor->data_dimension * sensor->data_count * sizeof(mxSingle)));
+	mxArray* arr = mxCreateNumericMatrix(sensor.data.Dimension(), data_count, mxSINGLE_CLASS, mxREAL);
+	mxSingle* arr_data = reinterpret_cast<mxSingle*>(mxMalloc(sensor.data.Dimension() * data_count * sizeof(mxSingle)));
 	
-	for (int i = 0; i < sensor->data_dimension; i++) {
-		for (int j = 0; j < sensor->data_count; j++) {
+	for (int i = 0; i < sensor.data.Dimension(); i++) {
+		for (int j = 0; j < data_count; j++) {
 			//mxSetSingles(sensor->data[i][j],);
-			arr_data[i * sensor->data_count + j] = sensor->data[i][j];
+			arr_data[i * data_count + j] = sensor.data.At(i, j);
 		}
 	}
 
