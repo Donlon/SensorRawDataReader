@@ -1,6 +1,10 @@
 #include "pch.h"
 #include "DataReader.h"
 
+#include <iostream>
+
+using namespace std;
+
 DataReader::DataReader(LPCTSTR path) : m_file_data(nullptr), m_file_handle(nullptr)
 {
 	_tcscpy_s(m_file_path, _MAX_PATH, path);
@@ -74,26 +78,17 @@ DWORD endian_inv(void* pos) {
 	return conv;
 }
 
-void print_sensor_info(sensor_entity *sensor) {
+void print_sensor_info(sensor_entity &sensor) {
 #ifdef _DEBUG
-	if (sensor->name) {
-		cout << "Sensor Name: " << sensor->name << endl;
-	}
-	else {
-		cout << "Sensor Name: (null)" << endl;
-	}
-	if (sensor->vendor_name) {
-		cout << "Sensor Vendor: " << sensor->vendor_name << endl;
-	}
-	else {
-		cout << "Sensor Vendor: (null)" << endl;
-	}
-	cout << "Version: " << sensor->version << endl;
-	cout << "Type: " << sensor->type << endl;
-	cout << "MaximumRange: " << sensor->maximum_range << endl;
-	cout << "Resolution: " << sensor->resolution << endl;
-	cout << "Power: " << sensor->power << endl;
-	cout << "MinDelay: " << sensor->min_delay << endl;
+	cout << "Sensor Name: " << sensor.name << endl;
+	cout << "Sensor Vendor: " << sensor.vendor_name << endl;
+	
+	cout << "Version: " << sensor.version << endl;
+	cout << "Type: " << sensor.type << endl;
+	cout << "MaximumRange: " << sensor.maximum_range << endl;
+	cout << "Resolution: " << sensor.resolution << endl;
+	cout << "Power: " << sensor.power << endl;
+	cout << "MinDelay: " << sensor.min_delay << endl;
 	cout << endl;
 #endif
 }
@@ -121,49 +116,50 @@ BOOL DataReader::Parse() {
 	pointer += sensorsInfoSize;
 
 	PARSE_ASSERT_REVAL(ProbeRecordedData(pointer), FALSE)
-	
-	sensor_entity* s1 = m_sensors; 
-	for (int s_i = 0; s_i < m_sensor_count; s_i++) {
-		s1->data_timestamp = new time_t[s1->data_count]();
-		s1->data_accuracy = new FLOAT[s1->data_count]();
-		s1->data = new FLOAT*[s1->data_dimension]();
-		for (int i = 0; i < s1->data_dimension; i++) {
-			s1->data[i] = new FLOAT[s1->data_count]();
+
+	for (int i = 0; i < m_sensor_count; i++) {
+		sensor_entity& sensor = m_sensors[i];
+		sensor.data_timestamp.resize(sensor.data_count);
+		sensor.data_accuracy.resize(sensor.data_count);
+		sensor.data = new FLOAT*[sensor.data_dimension]();
+		for (int i = 0; i < sensor.data_dimension; i++) {
+			sensor.data[i] = new FLOAT[sensor.data_count]();
 		}
-		s1++;
 	}
 
-	recode_frame* frame_recodes = new recode_frame[m_frame_count];
-	recode_frame* frame_recodes_pt = frame_recodes;
-
-	for (int frame_i = 0; frame_i < m_frame_count; frame_i++, frame_recodes_pt++) {
+	vector<recode_frame> frames(m_frame_count);
+	for (int i = 0; i < m_frame_count; i++) {
+		recode_frame& frame = frames[i];
 		pointer += 16;
 
-		frame_recodes_pt->index = frame_i;
-		frame_recodes_pt->pos_offset = pointer - m_file_data;
+		frame.index = i;
+		frame.pos_offset = pointer - m_file_data;
 
-		DWORD frameSize = ParseFrame(pointer, frame_recodes_pt);
+		DWORD frameSize = ParseFrame(pointer, frame);
 		pointer += frameSize;
 	}
 
-	m_frames = frame_recodes;
-
+	frames.swap(m_frames);
+#if 1
 #ifdef _DEBUG
 	puts("");
 
-	sensor_entity* s2 = m_sensors;
-	for (int s_i = 0; s_i < m_sensor_count; s_i++, putchar('\n')) {
-		puts(s2->name);
-		for (int i = 0; i < s2->data_count; i++, putchar('\n')) {
-			printf("%d: %.2f", i, s2->data_accuracy[i]);
-			for (int j = 0; j < s2->data_dimension && (putchar(' '), 1); j++) {
-				printf("%.2f", s2->data[j][i]);
+	for (int i = 0; i < m_sensor_count; i++, putchar('\n')) {
+		sensor_entity& s2 = m_sensors[i];
+		cout << s2.name << endl;
+		for (int i = 0; i < s2.data_count; i++, putchar('\n')) {
+			printf("%d: %.2f", i, s2.data_accuracy[i]);
+			for (int j = 0; j < s2.data_dimension && (putchar(' '), 1); j++) {
+				printf("%.2f", s2.data[j][i]);
 			}
 		}
-		s2++;
 	}
 #endif
-
+#endif
+	//m_sensors.resize(2);
+	//m_sensors.resize(10);
+	//causes errors
+	
 	m_status = PARSED;
 	return TRUE;
 }
@@ -181,12 +177,12 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 	ENDIAN_CAST_DWORD(pointer, &sensorCount);
 	pointer += 4;
 
-	m_sensors = new sensor_entity[sensorCount];
-
-	sensor_entity *curr_sensor = m_sensors;
+	vector<sensor_entity> sensors(sensorCount);
 
 	DWORD read_sensors_count = 0;
+
 	while (read_sensors_count < sensorCount) {
+		sensor_entity& sensor = sensors[read_sensors_count];
 
 		PARSE_ASSERT_REVAL(BufferSufficient(pointer, 4), -1)
 
@@ -198,77 +194,76 @@ int DataReader::ParseSensorsInfo(UCHAR* base)
 
 		UCHAR* pointer_entity = pointer;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->id);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.id);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->data_dimension);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.data_dimension);
 		pointer_entity += 4;
 
-		curr_sensor->name = ReadString(pointer_entity, &curr_sensor->name_len);
-		pointer_entity += curr_sensor->name_len;
+		ReadString(pointer_entity, sensor.name);
+		pointer_entity += sensor.name.length();
 		pointer_entity++; // TODO: skip zeros
 
-		curr_sensor->vendor_name = ReadString(pointer_entity, &curr_sensor->vendor_name_len);
-		pointer_entity += curr_sensor->vendor_name_len;
+		ReadString(pointer_entity, sensor.vendor_name);
+		pointer_entity += sensor.vendor_name.length();
 		pointer_entity++; // TODO: skip zeros
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->version);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.version);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->type);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.type);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->maximum_range);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.maximum_range);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->resolution);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.resolution);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->power);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.power);
 		pointer_entity += 4;
 
-		ENDIAN_CAST_DWORD(pointer_entity, &curr_sensor->min_delay);
+		ENDIAN_CAST_DWORD(pointer_entity, &sensor.min_delay);
 		pointer_entity += 4;
 
-		print_sensor_info(curr_sensor);
+		print_sensor_info(sensor);
 
 		PARSE_ASSERT_REVAL((DWORD)(pointer_entity - pointer) <= entity_size, -1)//TODO free buf
 
-		curr_sensor->index = read_sensors_count;
+		sensor.index = read_sensors_count;
 
 		pointer = pointer_entity;
 
 		read_sensors_count++;
-		curr_sensor++;
 	}
-	m_sensor_count = read_sensors_count;
 
 	if ((DWORD)(pointer - base) <= info_size) {
+		m_sensor_count = read_sensors_count;
+		sensors.swap(m_sensors);
 		return info_size + 4;
 	} else {
-		//TODO free buf
-		return -1;
+		throw;
 	}
 }
 
-char* DataReader::ReadString(UCHAR* base, DWORD* read_length)
+template<class T> T* deconst(const T* obj) {
+	return const_cast<T*>(obj);
+}
+
+void DataReader::ReadString(BYTE* base, string& str)
 {
-	UCHAR *pos = base;
-	DWORD l = 0;
+	BYTE *pos = base;
 	while (*pos != 0) {
-		l++;
 		pos++;
 	}
+	DWORD l = (DWORD) (pos - base);
 	if (l == 0) {
-		*read_length = 0;
-		return nullptr;
+		str.clear();
+		return;
 	}
-
-	LPSTR str = new CHAR[l + 1];
-
-	memcpy(str, base, l + 1);
-	*read_length = l;
-	return str;
+	str.resize(l);
+	//LPSTR str = new CHAR[l + 1];
+	memcpy(const_cast<char*>(str.data()), base, l + 1);
 }
 
 BOOL inline DataReader::BufferSufficient(UCHAR * base, DWORD bytesToRead) {
@@ -294,7 +289,7 @@ BOOL DataReader::ProbeRecordedData(UCHAR * base)
 #ifdef _DEBUG
 	puts("Probe result:");
 	for (int i = 0; i < m_sensor_count; i++) {
-		printf("  count:%6d  name:%s\n", m_sensors[i].data_count, m_sensors[i].name);
+		printf("  count:%6d  name:%s\n", m_sensors[i].data_count, m_sensors[i].name.c_str());
 	}
 #endif
 
@@ -354,30 +349,29 @@ int DataReader::ProbeFrame(UCHAR* base)
 }
 
 sensor_entity* DataReader::MapToSensorEntity(DWORD sensorId) {
-	sensor_entity* s = m_sensors;
-	for (int i = 0; i < m_sensor_count; i++, s++) {
-		if (s->id == sensorId) {
-			return s;
+	for (int i = 0; i < m_sensors.size(); i++) {
+		if (m_sensors[i].id == sensorId) {
+			return &m_sensors[i];
 		}
 	}
 	return nullptr;
 }
 
-int DataReader::ParseFrame(UCHAR* base, recode_frame* frame)
+int DataReader::ParseFrame(UCHAR* base, recode_frame& frame)
 {
 	UCHAR* pointer = base;
 
 	pointer += 4;// frameIndex;
 
-	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&frame->size));
+	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&frame.size));
 	pointer += 4;// frameSize;
 
 	DWORD groupCount = 0;
 	ENDIAN_CAST_DWORD(pointer, reinterpret_cast<DWORD *>(&groupCount));
-	frame->group_count = groupCount;
+	frame.group_count = groupCount;
 	pointer += 4;
 
-	ENDIAN_CAST_QWORD(pointer, reinterpret_cast<UINT64 *>(&frame->time));
+	ENDIAN_CAST_QWORD(pointer, reinterpret_cast<UINT64 *>(&frame.time));
 	pointer += 8;// time
 
 	int readGroup = 0;
@@ -420,23 +414,10 @@ int DataReader::ParseFrame(UCHAR* base, recode_frame* frame)
 
 DataReader::~DataReader() {
 	::CloseHandle(m_file_handle);
-	ptr_free(m_sensors)
 	ptr_free(m_file_data)
 }
 
-#define LOAD_ASSERT_MSG(condition, msg) \
-if (!(condition)) {                     \
-	OutputDebugString(_T(msg));           \
-	return -1;                            \
-}  //	return GetLastError();               \\ 
-
-#define LOAD_ASSERT(condition)          \
-if (!(condition)) {                     \
-	return -1;                            \
-}
-
 int DataReader::_LoadFile() {
-
 	m_file_handle = ::CreateFile(m_file_path,    // 名称
 		GENERIC_READ,                          // 读文件
 		FILE_SHARE_READ | FILE_SHARE_WRITE,    // 共享读写
@@ -445,25 +426,27 @@ int DataReader::_LoadFile() {
 		FILE_ATTRIBUTE_NORMAL,                 //      
 		NULL);                                 // 模板文件为空
 
-	LOAD_ASSERT_MSG(m_file_handle != INVALID_HANDLE_VALUE, "CreateFile failed!/r/n")
+	if (m_file_handle == INVALID_HANDLE_VALUE) {
+		throw "CreateFile failed!";
+	}
 
 	//从文件里读取数据。
 	LONG lDistance = 0;
 	DWORD dwPtr = ::SetFilePointer(m_file_handle, lDistance, NULL, FILE_BEGIN);
 
-	LOAD_ASSERT(dwPtr != INVALID_SET_FILE_POINTER)
+	if (dwPtr == INVALID_SET_FILE_POINTER) throw;
 
-	DWORD size = GetFileSize(m_file_handle, NULL);
+	DWORD size = ::GetFileSize(m_file_handle, NULL);
 
-	LOAD_ASSERT(size != 0)
+	if (size == 0) throw;
 
-	UCHAR* buffer = new UCHAR[size];
+	BYTE* buffer = new BYTE[size];
 
 	DWORD dwReadSize = 0;
 	BOOL bRet = ::ReadFile(m_file_handle, buffer, size, &dwReadSize, NULL);
 
-	LOAD_ASSERT(bRet)
-	LOAD_ASSERT(size == dwReadSize)
+	if (!bRet) throw;
+	if (size != dwReadSize) throw;
 
 	m_file_size = dwReadSize;
 

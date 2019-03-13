@@ -1,11 +1,15 @@
 #include "pch.h"
-#include <mat.h>
-#include <mex.h>
 
 #include "MatlabDataExporter.h"
 
+#include <mat.h>
+#include <mex.h>
+#include <iostream>
+
 #pragma comment(lib,"libmat.lib")
 #pragma comment(lib,"libmx.lib")
+
+using namespace std;
 
 MatlabDataExporter::MatlabDataExporter()
 {
